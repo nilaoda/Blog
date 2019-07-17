@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width,initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>getvinfo - 版本2</title>
+    <script>
+        //aubout this html:
+        //author: nilaoda
+        //date: 20190717
+        function getvinfo(data) {
+            var arr = data.vl.vi[0].ul.ui;
+            var ui = arr[arr.length - 1];
+            var m3u8 = "";
+            try {
+                m3u8 = ui.url + ui.hls.pt;
+            } catch (error) {
+                m3u8 = ui.url;
+            }
+            document.getElementById("result").value = m3u8;
+        }
+
+        function getParmFromCookie(str) {
+            var parms = str.split(';');
+            return "&" + parms.join('&');
+        }
+
+        function relaceQueryString(url, name, value) {
+            let reg = new RegExp("(^|&)" + name + "=([^&]*)(&|$)", "i");
+            let r = url.match(reg);
+            if (r != null) {
+                return url.replace(name + "=" + unescape(r[2]), name + "=" + value);
+            };
+            return null;
+        }
+
+        function handleParm(str) {
+            if (localStorage.getItem("cookie") == null || localStorage.getItem("cookie") != document.getElementById('cookie').value) {
+                localStorage.setItem("cookie", document.getElementById('cookie').value);
+            }
+            var r = str + "&callback=getvinfo";
+            r = relaceQueryString(r, "otype", "json");
+            r = relaceQueryString(r, "hevclv", "33");
+            r = relaceQueryString(r, "defn", "uhd");
+            return "https://tv.aiseet.atianqi.com/openqq/getvinfo?" + r + getParmFromCookie(localStorage.getItem("cookie"));
+        }
+
+        function loadScript(url) {
+            var head = document.getElementsByTagName('head')[0];
+            var script = document.createElement('script');
+            script.src = url;
+            head.appendChild(script);
+        }
+    </script>
+</head>
+
+<body style="text-align: center">
+    <div style="padding: 5px">
+        <label>GetVideo解析(TV) POST数据</label>
+        <textarea style="width: 95%; margin-bottom: 20px;margin-top: 20px;resize:vertical;" rows="8"
+            id="input"></textarea><br />
+        <label>云视听cookie</label><br />
+        <textarea style="width: 95%; margin-bottom: 20px;margin-top: 20px;resize:vertical;" id="cookie"></textarea>
+        <button style="width: 95%;height:50px; margin-bottom: 20px" id="btn"
+            onclick="loadScript(handleParm(document.getElementById('input').value));">点我测试</button>
+        <br />
+        <label>解析结果</label>
+        <br />
+        <textarea style="width: 95%; margin-bottom: 20px;margin-top: 20px;resize:vertical;" rows="4"
+            id="result"></textarea>
+    </div>
+    <a href="https://github.com/nilaoda/Blog/issues/1" target="_blank">返回教程</a> |
+    <a href="https://github.com/nilaoda/N_m3u8DL-CLI" target="_blank">获取下载器</a>
+
+    <script>
+        if (localStorage.getItem("cookie") != null) {
+            document.getElementById("cookie").value = localStorage.getItem("cookie");
+        }
+    </script>
+</body>
+
+</html>

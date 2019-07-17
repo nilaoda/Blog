@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width,initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>getvinfo</title>
+    <script>
+        //aubout this html:
+        //author: nilaoda
+        //date: 20190717
+        function getvinfo(data) {
+            var arr = data.vl.vi[0].ul.ui;
+            var ui = arr[arr.length - 1];
+            var m3u8 = "";
+            try {
+                m3u8 = ui.url + ui.hls.pt;
+            } catch (error) {
+                m3u8 = ui.url;
+            }
+            document.getElementById("result").value = m3u8;
+        }
+
+        function relaceQueryString(url, name, value) {
+            let reg = new RegExp("(^|&)" + name + "=([^&]*)(&|$)", "i");
+            let r = url.match(reg);
+            if (r != null) {
+                return url.replace(name + "=" + unescape(r[2]), name + "=" + value);
+            };
+            return null;
+        }
+
+        function handleParm(str) {
+            var r = str + "&callback=getvinfo";
+            r = relaceQueryString(r, "otype", "json");
+            r = relaceQueryString(r, "hevclv", "33");
+            r = relaceQueryString(r, "defn", "uhd");
+            return "http://tv.aiseet.atianqi.com/openqq/getvinfo?" + r;
+        }
+
+        function loadScript(url) {
+            var head = document.getElementsByTagName('head')[0];
+            var script = document.createElement('script');
+            script.src = url;
+            head.appendChild(script);
+        }
+    </script>
+</head>
+
+<body style="text-align: center">
+    <div style="padding: 5px">
+        <label>云视听POST数据</label>
+        <textarea style="width: 95%; margin-bottom: 20px;margin-top: 20px;resize:vertical;" rows="8"
+            id="input"></textarea><br />
+        <button style="width: 95%;height:50px; margin-bottom: 20px" id="btn"
+            onclick="loadScript(handleParm(document.getElementById('input').value));">点我测试</button>
+        <br />
+        <label>解析结果</label>
+        <textarea style="width: 95%; margin-bottom: 20px;margin-top: 20px;resize:vertical;" rows="4"
+            id="result"></textarea>
+    </div>
+    <a href="https://github.com/nilaoda/Blog/issues/1" target="_blank">返回教程</a> |
+    <a href="https://github.com/nilaoda/N_m3u8DL-CLI" target="_blank">获取下载器</a>
+
+</body>
+
+</html>

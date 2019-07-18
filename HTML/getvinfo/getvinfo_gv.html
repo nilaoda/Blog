@@ -28,7 +28,7 @@
             return "&" + parms.join('&');
         }
 
-        function relaceQueryString(url, name, value) {
+        function replaceQueryString(url, name, value) {
             let reg = new RegExp("(^|&)" + name + "=([^&]*)(&|$)", "i");
             let r = url.match(reg);
             if (r != null) {
@@ -42,9 +42,9 @@
                 localStorage.setItem("cookie", document.getElementById('cookie').value);
             }
             var r = str + "&callback=getvinfo";
-            r = relaceQueryString(r, "otype", "json");
-            r = relaceQueryString(r, "hevclv", "33");
-            r = relaceQueryString(r, "defn", "uhd");
+            r = replaceQueryString(r, "otype", "json");
+            r = replaceQueryString(r, "hevclv", "33");
+            r = replaceQueryString(r, "defn", "uhd");
             return "https://tv.aiseet.atianqi.com/openqq/getvinfo?" + r + getParmFromCookie(localStorage.getItem("cookie"));
         }
 

@@ -11,7 +11,7 @@
       if(Hls.isSupported()) {
         var video = document.getElementById('video');
         var hls = new Hls();
-        hls.loadSource('https://files.catbox.moe/3a24wf.m3u8');
+        hls.loadSource('https://nilaoda.github.io/Blog/HTML/HLS.html');
         hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED,function() {
           video.play();

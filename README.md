@@ -7,4 +7,4 @@
 ╚═════╝ ╚══════╝ ╚═════╝  ╚═════╝ 
 ```           
 
-欢迎来到我的博客
+[BLOG](https://github.com/nilaoda/Blog/discussions)

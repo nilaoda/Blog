@@ -1,0 +1,51 @@
+<html>
+<head>
+<style>
+body{
+	font-family: Consolas
+}
+</style>
+<title>ffmpeg crop计算器</title>
+<table>
+<tr>
+<td>res:</td><td><input type="number" min="0" step="2" id="resW" value="1920"/></td><td><input type="number" min="0" step="2" id="resH" value="1080"/></td>
+</tr>
+<tr>
+<td>top:</td><td><input type="number" value="0" min="0" step="2" id="crop_t"/></td><td>(顶部裁剪像素值)</td>
+</tr>
+<tr>
+<td>left:</td><td><input type="number" value="0" min="0" step="2" id="crop_l"/></td><td>(左边裁剪像素值)</td>
+</tr>
+<tr>
+<td>right:</td><td><input type="number" value="0" min="0" step="2" id="crop_r"/></td><td>(右边裁剪像素值)</td>
+</tr>
+<tr>
+<td>bottom:</td><td><input type="number" value="0" min="0" step="2" id="crop_b"/></td><td>(底部裁剪像素值)</td>
+</tr>
+<tr>
+<td colspan="3"><hr></td>
+</tr>
+<tr>
+<td>ffmpeg:</td><td><input id="ff" value="1920:1080:0:0"/></td><td><button id="btn" style="width:100%;height:100%"/>Calc</button>
+</tr>
+</table>
+<script>
+function check(num) {
+	return num >= 0 && num != NaN && num % 2 == 0;
+}
+
+btn.onclick =function(){ 
+	let w = Number(resW.value);
+	let h = Number(resH.value);
+    let t = Number(crop_t.value);
+	let l = Number(crop_l.value);
+	let r = Number(crop_r.value);
+	let b = Number(crop_b.value);
+	if(!check(w) || !check(h) || !check(t) || !check(l) || !check(r) || !check(b)){
+		alert("输入有误! 所有数字只能是正偶数!");
+	}
+	ff.value = `${w-l-r}:${h-t-b}:${l}:${t}`;
+} 
+</script>
+</head>
+</html>

@@ -1,0 +1,14 @@
+<script>
+function dododo(){
+	document.getElementById("link").innerText = linktext.value;
+	document.getElementById("link").setAttribute("href","javascript:"+palin.value);
+}
+</script>
+
+JS代码：<br><br>
+<textarea rows="30" cols="100" id="palin"></textarea><br><br>
+<textarea id="linktext">输入链接名称</textarea><br><br>
+
+<button onclick="dododo();">点击生成</button>（生成后的超链接可以拖动到浏览器书签栏）<br><br>
+
+<a href="" id="link"></a>

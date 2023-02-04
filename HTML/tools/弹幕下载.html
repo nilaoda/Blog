@@ -20,7 +20,7 @@
     };
     var parseFile = function (content) {
         content = content.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '');
-        content = content.replace('&nbsp;', '&#160;');
+        content = content.replace('&nbsp;', ' ');
         return parseXML(content);
     }
     var getUrls = async function (vid) {

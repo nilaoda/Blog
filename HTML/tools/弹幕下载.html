@@ -1,0 +1,102 @@
+<form id="form" onsubmit="return false;">
+    <input id="text" style="width:600px" value="https://v.qq.com/x/cover/mzc002007knmh3g/q0045g3rwbv.html">
+    </input>
+    <input type="radio" name="api" checked>官方API
+    <input type="radio" name="api">第三方API
+    <button onclick="test()">下载</button>
+</form>
+
+
+<br />
+
+<hr />
+
+<script>
+    var importDanmaku = async function () {
+        let jsCode = await fetch("https://tiansh.github.io/us-danmaku/bilibili/bilibili_ASS_Danmaku_Downloader.user.js").then(resp => resp.text());
+        let script = document.createElement("script");
+        script.text = jsCode;
+        document.getElementsByTagName("head")[0].appendChild(script);
+    };
+    var parseFile = function (content) {
+        content = content.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '');
+        content = content.replace('&nbsp;', '&#160;');
+        return parseXML(content);
+    }
+    var getUrls = async function (vid) {
+        var json = await fetch("https://dm.video.qq.com/barrage/base/" + vid).then(x => x.json());
+        return Object.keys(json.segment_index).map(x => `https://dm.video.qq.com/barrage/segment/${vid}/${json.segment_index[x].segment_name}`);
+    };
+    importDanmaku();
+
+    //主要函数
+    async function test() {
+        //官方API
+        if (form.api[0].checked) await test1();
+        //第三方API
+        else await test2();
+    }
+
+    async function test1() {
+        var url = text.value;
+        document.body.appendChild(document.createTextNode("开始下载：" + url));
+        var vid = url.split('/').pop().split('.')[0];
+        var urls = await getUrls(vid);
+        var results = urls.map(async url => {
+            var list = [];
+            var json = await fetch(url).then(x => x.json());
+            var n = 50;
+            Array.from(json.barrage_list).sort(() => Math.random() - Math.random()).slice(0, n).forEach((x, i) => {
+                let color = "16777215";
+                let content = x.content;
+                if (x.content_style != "") {
+                    let tmp = JSON.parse(x.content_style);
+                    if (tmp.gradient_colors) color = parseInt("0x" + tmp.gradient_colors[0]);
+                }
+                let start = Number(x.time_offset) / 1000.0;
+                let d = document.createElement("d");
+                d.innerText = content;
+                list.push(`<d p="${start},1,25,${color},1659282294,0,8b53b65c,1108899274487246080,10">${d.innerHTML}</d>`);
+            });
+            return list.join('');
+        });
+        var ds = await Promise.all(results);
+        var xml = String.raw`<?xml version="1.0" encoding="UTF-8"?><i><chatserver>chat.bilibili.com</chatserver><chatid>52175602</chatid><mission>0</mission><maxlimit>10000</maxlimit><state>0</state><real_name>0</real_name><source>k-v</source>`
+            + ds.join('') + "</i>";
+
+        console.log(xml);
+        var danmaku = parseFile(xml);
+        var ass = generateASS(setPosition(danmaku), {
+            'title': vid,
+            'ori': url,
+        });
+        startDownload('\ufeff' + ass, vid + '.ass');
+        document.body.appendChild(document.createTextNode("    完成"));
+        document.body.appendChild(document.createElement("hr"));
+    }
+
+    async function test2() {
+        var url = text.value;
+        document.body.appendChild(document.createTextNode("开始下载：" + url));
+        var json = await fetch("https://dmku.thefilehosting.com/?ac=dm&url=" + url).then(x => x.json());
+        var list = [];
+        Array.from(json.danmuku).forEach(x => {
+            let start = Number(x[0]);
+            let content = x[4];
+            let d = document.createElement("d");
+            d.innerText = content;
+            list.push(`<d p="${start},1,25,16777215,1659282294,0,8b53b65c,1108899274487246080,10">${d.innerHTML}</d>`)
+        });
+        var xml = String.raw`<?xml version="1.0" encoding="UTF-8"?><i><chatserver>chat.bilibili.com</chatserver><chatid>52175602</chatid><mission>0</mission><maxlimit>1000</maxlimit><state>0</state><real_name>0</real_name><source>k-v</source>`
+            + list.join('') + "</i>";
+        var danmaku = parseFile(xml);
+        var name = url.split('/').pop().split('.')[0];
+        var ass = generateASS(setPosition(danmaku), {
+            'title': name,
+            'ori': url,
+        });
+        startDownload('\ufeff' + ass, name + '.ass');
+        document.body.appendChild(document.createTextNode("    完成"));
+        document.body.appendChild(document.createElement("hr"));
+    }
+</script>

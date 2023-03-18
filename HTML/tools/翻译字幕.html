@@ -1,0 +1,151 @@
+<html>
+
+<head>
+    <style>
+        body *{
+            font-family: Consolas;
+        }
+    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>翻译字幕</title>
+    <script>
+        function buildReq() {
+            return JSON.stringify({
+                model: "gpt-3.5-turbo",
+                stream: true,
+                temperature: 0.7,
+                frequency_penalty: 0,
+                messages: [
+                    {
+                        role: "system",
+                        content: myPrompt.value
+                    },
+                    {
+                        role: "user",
+                        content: myInput.value
+                    },
+                ]
+            });
+        }
+
+        function onProcess(buffer) {
+            let decoder = new TextDecoder();
+            let r = decoder.decode(buffer);
+            window.messages = window.messages.concat(r.split('\n'));
+            if (window.left != "" && window.messages.length > 0) {
+                window.messages[0] = window.left + window.messages[0];
+                window.left = "";
+            }
+            while (window.messages.length > 0) {
+                let first = messages.shift();
+                if (first.length > 6 && first.endsWith("}")) {
+                    let obj = JSON.parse(first.slice(6));
+                    if (obj.choices[0].delta.content) {
+                        let data = obj.choices[0].delta.content;
+                        myResp.value += data;
+                        myResp.scrollTop = myResp.scrollHeight - myResp.clientHeight;
+                    }
+                } else {
+                    window.left = first;
+                }
+            }
+        }
+
+        async function doWorkAsync() {
+            myResp.value = "";
+            let reqData = buildReq();
+            let response = await fetch("https://api.openai.com/v1/chat/completions", {
+                "headers": {
+                    "accept": "text/event-stream",
+                    "accept-language": "zh-CN,zh;q=0.9",
+                    "authorization": "Bearer " + myApiKey.value,
+                    "content-type": "application/json",
+                },
+                "referrer": "https://platform.openai.com/",
+                "body": reqData,
+                "method": "POST",
+                "mode": "cors"
+            });
+            if (!response.ok) {
+                myResp.value = await response.text();
+            }
+            const reader = response.body.getReader();
+            var result;
+            while (!(result = await reader.read()).done) {
+                onProcess(result.value);
+            }
+            //showSrt();
+        }
+
+        // function showSrt() {
+        //     let index = 1;
+        //     if (myResp.value.startsWith("[")) {
+        //         let arr = JSON.parse(myResp.value);
+        //         let srt = arr.map(element => {
+        //             return `${index++}\n${element.time}\n${element.content}\n`;
+        //         });
+        //         myOutput.value = srt.join('\n');
+        //     }
+        // }
+
+        function saveKey() {
+            localStorage.ndApiKey = myApiKey.value;
+        }
+
+        window.onload = () => {
+            console.log("https://github.com/nilaoda")
+            window.messages = [];
+            window.left = "";
+            if (localStorage.ndApiKey) {
+                myApiKey.value = localStorage.ndApiKey;
+            }
+        }
+    </script>
+</head>
+
+<body>
+    本页面只是接收 openai 返回 event-stream 的一个测试，暂时没有实际价值
+    <hr/>
+    <p><a href="https://platform.openai.com/account/api-keys">API KEY</a></p>
+    <textarea id="myApiKey" cols="100" rows="1" onchange="saveKey();">请输入API KEY</textarea>
+    <p>设定</p>
+    <textarea id="myPrompt" cols="100" rows="5">你是一个字幕翻译官，你需要分别翻译输入的SRT段落。从日文到中文。
+注意：只返回翻译后的结果; 如果你识别到人名也需要翻译; 如果你觉得上下文联系在一起更通顺，请修正字幕显隐时间 
+以下是输入内容：</textarea>
+    <br /><br />
+    <p>输入内容</p>
+    <textarea id="myInput" cols="100" rows="10">1
+00:00:04,739 --> 00:00:06,540
+(真里) 毒を盛る｡
+
+2
+00:00:06,607 --> 00:00:08,275
+(麻美) 毒？
+
+3
+00:00:08,342 --> 00:00:10,778
+え？ それマジで言ってんの？
+
+4
+00:00:10,845 --> 00:00:12,279
+うん｡
+
+5
+00:00:12,346 --> 00:00:14,782
+(麻美) 中村さんを毒殺するってこと？
+
+6
+00:00:14,849 --> 00:00:16,784
+いや 殺しはしないよ｡
+
+7
+00:00:16,851 --> 00:00:19,720
+ちょっと
+動けなくなるようにするだけ｡</textarea>
+    <br /><br />
+    <button onclick="doWorkAsync();">开始</button>
+    <p>返回内容</p>
+    <textarea id="myResp" cols="100" rows="10"></textarea>
+</body>
+
+</html>

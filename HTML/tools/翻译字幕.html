@@ -2,7 +2,7 @@
 
 <head>
     <style>
-        body *{
+        body * {
             font-family: Consolas;
         }
     </style>
@@ -45,6 +45,9 @@
                         myResp.value += data;
                         myResp.scrollTop = myResp.scrollHeight - myResp.clientHeight;
                     }
+                } else if (first == "data: [DONE]") {
+                    console.log("处理结束!");
+                    window.messages = [];
                 } else {
                     window.left = first;
                 }
@@ -105,7 +108,7 @@
 
 <body>
     本页面只是接收 openai 返回 event-stream 的一个测试，暂时没有实际价值
-    <hr/>
+    <hr />
     <p><a href="https://platform.openai.com/account/api-keys">API KEY</a></p>
     <textarea id="myApiKey" cols="100" rows="1" onchange="saveKey();">请输入API KEY</textarea>
     <p>设定</p>

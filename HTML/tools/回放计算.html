@@ -1,0 +1,102 @@
+<head>
+    <title>回放计算</title>
+    <script>
+        var list = [];
+        function calc() {
+            list = [];
+            let arr = url_pattern.value.split('/');
+            let prefix = arr.slice(0, arr.length - 2).join('/');
+            console.log(prefix);
+            let start = new Date(start_time.value).getTime() / 1000;
+            let end = new Date(end_time.value).getTime() / 1000;
+            if (start > end) {
+                [start, end] = [end, start];
+            }
+            let now = new Date().getTime() / 1000;
+            if (start > now || end > now) {
+                alert("回放时间不正确!");
+                return;
+            }
+            let dur = Number(seg_dur.value) ?? 10; //10s每段
+            for (let i = start; i <= end; i += dur) {
+                list.push(`#EXT-X-PROGRAM-DATE-TIME:${format(i)}\n#EXTINF:${dur},\n${prefix}/${format(i, true)}/${(i / 10)}.ts`);
+            }
+            console.log(list);
+            m3u8_content.value = `#EXTM3U\n#EXT-X-TARGETDURATION:${dur}\n`
+                + list.join('\n')
+                + "\n#EXT-X-ENDLIST";
+        }
+
+        function format(timestamp, f = false) {
+            const date = new Date(timestamp * 1000);
+            const year = date.getFullYear();
+            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+            const day = date.getDate().toString().padStart(2, '0');
+            const hour = date.getHours().toString().padStart(2, '0');
+
+            const monthU = (date.getUTCMonth() + 1).toString().padStart(2, '0');
+            const dayU = date.getUTCDate().toString().padStart(2, '0');
+            const hourU = date.getUTCHours().toString().padStart(2, '0');
+            const minutesU = date.getUTCMinutes().toString().padStart(2, '0');
+            const secondsU = date.getUTCSeconds().toString().padStart(2, '0');
+            if (f) return `${year}${month}${day}${hour}`;
+            return `${year}-${monthU}-${dayU}T${hourU}:${minutesU}:${secondsU}.000Z`;
+        }
+
+        function makeDownload(text, filename, type) {
+            let b = new Blob([text], {
+                type: type || 'text/plain'
+            });
+            let a = document.createElement("a");
+            a.href = URL.createObjectURL(b);
+            a.setAttribute("download", filename);
+            a.click();
+        };
+
+        function download() {
+            let start = new Date(start_time.value).getTime() / 1000;
+            let end = new Date(end_time.value).getTime() / 1000;
+            let text = m3u8_content.value;
+            makeDownload(text, `${start}-${end}.m3u8`);
+        }
+    </script>
+</head>
+
+<body>
+    <h1>
+        回放计算器
+    </h1>
+    <div>
+        <label for="url_pattern">切片链接：</label>
+        <input type="text" id="url_pattern" style="width: 800px;" name="url_pattern"
+            value="http://223.111.117.11/liveplay-kk.rtxapp.com/live/program/live/cctv1hd8m/8000000/2023060513/168594450.ts" />
+    </div>
+    <div>
+        <label for="url_pattern">切片时长：</label>
+        <input type="number" id="seg_dur" style="width: 100px;" name="seg_dur" value="10" />
+    </div>
+    <div>
+        <label for="start_time">开始时间：</label>
+        <input type="datetime-local" id="start_time" name="start_time">
+    </div>
+    <div>
+        <label for="end_time">结束时间：</label>
+        <input type="datetime-local" id="end_time" name="end_time">
+    </div>
+
+    <br />
+    <div>
+        <button id="start_calc" onclick="calc()">开始生成</button>
+    </div>
+
+    <br />
+    <div>
+        <textarea type="text" id="m3u8_content" rows="30" cols="130" name="m3u8_content"></textarea>
+    </div>
+
+    <br />
+    <div>
+        <button id="save_text" onclick="download()">保存文本</button>
+    </div>
+
+</body>

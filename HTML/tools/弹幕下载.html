@@ -1,10 +1,16 @@
+<head>
+    <title>弹幕下载</title>
+</head>
+
+
 <form id="form" onsubmit="return false;">
-    <input id="text" style="width:600px" value="https://v.qq.com/x/cover/mzc002007knmh3g/q0045g3rwbv.html">
+    <!--<input id="text" style="width:600px" value="https://v.qq.com/x/cover/mzc002007knmh3g/q0045g3rwbv.html">-->
+    <input id="text" style="width:600px" value="https://www.iqiyi.com/v_2bh3doltkq4.html">
     </input>
     <input type="radio" name="api" checked>官方API
     <input type="radio" name="api">第三方API
-    <button onclick="test(false)">下载ASS</button>
-    <button onclick="test(true)">下载XML</button>
+    <button onclick="handle(false)">下载ASS</button>
+    <button onclick="handle(true)">下载XML</button>
 </form>
 
 
@@ -15,8 +21,8 @@
 <script>
     var onlyXML = false;
 
-    var importDanmaku = async function () {
-        let jsCode = await fetch("https://tiansh.github.io/us-danmaku/bilibili/bilibili_ASS_Danmaku_Downloader.user.js").then(resp => resp.text());
+    var importJs = async function (jsUrl) {
+        let jsCode = await fetch(jsUrl).then(resp => resp.text());
         let script = document.createElement("script");
         script.text = jsCode;
         document.getElementsByTagName("head")[0].appendChild(script);
@@ -25,24 +31,90 @@
         content = content.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '');
         return parseXML(content);
     }
-    var getUrls = async function (vid) {
+    importJs("https://tiansh.github.io/us-danmaku/bilibili/bilibili_ASS_Danmaku_Downloader.user.js");
+    importJs("https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js");
+
+    //主要函数
+    async function handle(f) {
+        onlyXML = f;
+        //官方API
+        if (form.api[0].checked) await handleLocal();
+        //第三方API
+        else await handleRemote();
+    }
+
+    function downloadDanmu(ds, title, url) {
+        var xml = String.raw`<?xml version="1.0" encoding="UTF-8"?><i><chatserver>chat.bilibili.com</chatserver><chatid>52175602</chatid><mission>0</mission><maxlimit>10000</maxlimit><state>0</state><real_name>0</real_name><source>k-v</source>`
+            + ds.join('') + "</i>";
+
+        console.log(xml);
+        if (onlyXML) {
+            startDownload('\ufeff' + xml, title + '.xml');
+        } else {
+            var danmaku = parseFile(xml);
+            var ass = generateASS(setPosition(danmaku), {
+                'title': title,
+                'ori': url,
+            });
+            startDownload('\ufeff' + ass, title + '.ass');
+        }
+    }
+
+    ///////////////////////////IQY START
+
+    async function get_tvid(url) {
+        const id = /v_(\w+)/.exec(url)[1];
+        const api = `https://pcw-api.iq.com/api/decode/${id}?platformId=3&modeCode=intl&langCode=sg`;
+        return await fetch(api).then(x => x.json()).then(x => x.data.toString());
+    }
+
+    async function get_dur(tvid) {
+        const api = `https://pcw-api.iqiyi.com/video/video/baseinfo/${tvid}`;
+        return await fetch(api).then(x => x.json()).then(x => x.data.durationSec);
+    }
+
+    async function invoke_iqiyi(url) {
+        const tvid = await get_tvid(url);
+        const dur = await get_dur(tvid);
+        const durPerDm = 300;
+        const count = Math.ceil(dur / durPerDm);
+        const prefix = `https://cmts.iqiyi.com/bullet/${tvid.substr(-4, 2)}/${tvid.substr(-2, 2)}`;
+        const range = Array.from({ length: count }, (_, index) => index + 1);
+        const results = range.map(async i => {
+            const api = `${prefix}/${tvid}_${durPerDm}_${i}.z`;
+            const compressedData = await fetch(api).then(resp => resp.arrayBuffer());
+            const xmlString = pako.inflate(compressedData, { to: 'string' });
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(xmlString, "text/xml");
+            const enrties = xmlDoc.getElementsByTagName("entry");
+            var list = [];
+            for (let entry of enrties) {
+                const [bulletInfo1, bulletInfo2] = entry.getElementsByTagName("bulletInfo");
+                for (let bi of [bulletInfo1, bulletInfo2].filter(x => x)) {
+                    const start = bi.getElementsByTagName("showTime")[0].textContent;
+                    const content = bi.getElementsByTagName("content")[0].textContent;
+                    const color = parseInt("0x" + bi.getElementsByTagName("color")[0].textContent);
+                    list.push(`<d p="${start},1,25,${color},1659282294,0,8b53b65c,1108899274487246080,10"><![CDATA[${content}]]></d>`);
+                }
+            }
+            return list.join('');
+        });
+        const ds = await Promise.all(results);
+        downloadDanmu(ds, tvid, url);
+    }
+
+    ///////////////////////////IQY END
+
+
+
+
+    ///////////////////////////QQ START
+    async function getUrls(vid) {
         var json = await fetch("https://dm.video.qq.com/barrage/base/" + vid).then(x => x.json());
         return Object.keys(json.segment_index).map(x => `https://dm.video.qq.com/barrage/segment/${vid}/${json.segment_index[x].segment_name}`);
     };
-    importDanmaku();
 
-    //主要函数
-    async function test(f) {
-        onlyXML = f;
-        //官方API
-        if (form.api[0].checked) await test1();
-        //第三方API
-        else await test2();
-    }
-
-    async function test1() {
-        var url = text.value;
-        document.body.appendChild(document.createTextNode("开始下载：" + url));
+    async function invoke_qq(url) {
         var vid = url.split('/').pop().split('.')[0];
         var urls = await getUrls(vid);
         var results = urls.map(async url => {
@@ -62,25 +134,27 @@
             return list.join('');
         });
         var ds = await Promise.all(results);
-        var xml = String.raw`<?xml version="1.0" encoding="UTF-8"?><i><chatserver>chat.bilibili.com</chatserver><chatid>52175602</chatid><mission>0</mission><maxlimit>10000</maxlimit><state>0</state><real_name>0</real_name><source>k-v</source>`
-            + ds.join('') + "</i>";
+        downloadDanmu(ds, vid, url);
+    }
+    ///////////////////////////QQ END
 
-        console.log(xml);
-        if (onlyXML) {
-            startDownload('\ufeff' + xml, vid + '.xml');
+
+
+    async function handleLocal() {
+        var url = text.value;
+        document.body.appendChild(document.createTextNode("开始下载：" + url));
+        if (url.indexOf("qq.com") > 0) {
+            await invoke_qq(url);
+        } else if (url.indexOf("iqiyi.com") > 0) {
+            await invoke_iqiyi(url);
         } else {
-            var danmaku = parseFile(xml);
-            var ass = generateASS(setPosition(danmaku), {
-                'title': vid,
-                'ori': url,
-            });
-            startDownload('\ufeff' + ass, vid + '.ass');
+            alert('不支持');
         }
         document.body.appendChild(document.createTextNode("    完成"));
         document.body.appendChild(document.createElement("hr"));
     }
 
-    async function test2() {
+    async function handleRemote() {
         var url = text.value;
         document.body.appendChild(document.createTextNode("开始下载：" + url));
         var json = await fetch("https://dmku.thefilehosting.com/?ac=dm&url=" + url).then(x => x.json());

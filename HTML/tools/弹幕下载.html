@@ -1,25 +1,103 @@
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>弹幕下载</title>
+    <style>
+        .tabs {
+            display: flex;
+            cursor: pointer;
+            border-bottom: 2px solid #ddd;
+            margin-bottom: 1rem;
+        }
+        .tab {
+            padding: 10px 20px;
+            margin-right: 5px;
+            border: 1px solid #ddd;
+            border-bottom: none;
+            background: #f9f9f9;
+        }
+        .tab.active {
+            background: #fff;
+            font-weight: bold;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+    </style>
 </head>
 
+<!-- Tabs Navigation -->
+<div class="tabs">
+    <div class="tab active" data-tab="download">弹幕下载</div>
+    <div class="tab" data-tab="adjust">XML 弹幕调整</div>
+</div>
 
-<form id="form" onsubmit="return false;">
-    <!--<input id="text" style="width:600px" value="https://v.qq.com/x/cover/mzc002007knmh3g/q0045g3rwbv.html">-->
-    <input id="text" style="width:600px" value="https://www.iqiyi.com/v_2bh3doltkq4.html">
-    </input>
-    <input type="radio" name="api" checked>官方API
-    <input type="radio" name="api">第三方API
-    <button onclick="handle(false)">下载ASS</button>
-    <button onclick="handle(true)">下载XML</button>
-</form>
+<!-- Tab Content: 弹幕下载 -->
+<div id="download" class="tab-content active">
+    <form id="form" onsubmit="return false;" style="display: flex; flex-direction: column; gap: 0.5rem;">
+        <div>
+            <input id="text" style="width:600px;" value="https://v.qq.com/x/cover/mzc002007knmh3g/q0045g3rwbv.html">
+            <!--<input id="text" style="width:600px" value="https://www.iqiyi.com/v_2bh3doltkq4.html">-->
+        </div>
+        <div>
+            <input type="radio" name="api" checked>官方API
+            <input type="radio" name="api">第三方API
+            <input type="radio" name="api">多多视频弹幕转换
+        </div>
+        <div>
+            延迟时间(秒)
+            <input id="delaySec" style="width:100px" value="0">
+            <button onclick="handle(false)">下载ASS</button>
+            <button onclick="handle(true)">下载XML</button>
+        </div>
+    </form>
+</div>
 
+
+<!-- Tab Content: XML 弹幕调整 -->
+<div id="adjust" class="tab-content">
+    <form id="adjustForm" onsubmit="return false;" style="display: flex; flex-direction: column; gap: 0.5rem;">
+        <div>
+            <label for="xmlFile">上传 XML 弹幕文件：</label>
+            <input type="file" id="xmlFile" accept=".xml">
+        </div>
+        <div>
+            <label for="adjustTime">延迟时间(秒)：</label>
+            <input id="adjustTime" style="width:100px" value="0">
+        </div>
+        <div>
+            <button onclick="adjustXML()">调整并下载</button>
+        </div>
+    </form>
+</div>
 
 <br />
 
 <hr />
 
 <script>
+    // Tab Switching Logic
+    const tabs = document.querySelectorAll('.tab');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            // Remove active class from all tabs and contents
+            tabs.forEach(t => t.classList.remove('active'));
+            tabContents.forEach(tc => tc.classList.remove('active'));
+
+            // Add active class to the clicked tab and corresponding content
+            tab.classList.add('active');
+            document.getElementById(tab.dataset.tab).classList.add('active');
+        });
+    });
+</script>
+<script>
     var onlyXML = false;
+    var delay = 0;
 
     var importJs = async function (jsUrl) {
         let jsCode = await fetch(jsUrl).then(resp => resp.text());
@@ -37,15 +115,23 @@
     //主要函数
     async function handle(f) {
         onlyXML = f;
-        //官方API
-        if (form.api[0].checked) await handleLocal();
+        // 检查是否为浮点数
+        if (isNaN(delaySec.value)) {
+            alert('请提供有效的时间值！');
+            return;
+        }
+        delay = parseFloat(delaySec.value);
+        //官方API || 多多视频转换
+        if (form.api[0].checked || form.api[2].checked) await handleLocal();
         //第三方API
         else await handleRemote();
     }
 
     function downloadDanmu(ds, title, url) {
+        // 去除出现时间为负数的弹幕
+        var filteredDs = ds.filter(x => !x.startsWith('<d p="-'));
         var xml = String.raw`<?xml version="1.0" encoding="UTF-8"?><i><chatserver>chat.bilibili.com</chatserver><chatid>52175602</chatid><mission>0</mission><maxlimit>10000</maxlimit><state>0</state><real_name>0</real_name><source>k-v</source>`
-            + ds.join('') + "</i>";
+            + filteredDs.join('') + "</i>";
 
         console.log(xml);
         if (onlyXML) {
@@ -58,6 +144,40 @@
             });
             startDownload('\ufeff' + ass, title + '.ass');
         }
+    }
+
+    function adjustXML() {
+        const file = document.getElementById('xmlFile').files[0];
+        const timeAdjustment = parseFloat(adjustTime.value);
+        if (!file) {
+            alert('请上传一个 XML 文件！');
+            return;
+        }
+        // 检查是否为浮点数
+        if (isNaN(timeAdjustment)) {
+            alert('请提供有效的时间值！');
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = function (event) {
+            const xmlContent = event.target.result;
+            // 使用正则表达式调整时间，删除负数记录
+            const updatedXML = xmlContent.replace(
+                /<d p="([\d.]+),.*?<\/d>/g,
+                (match, time) => {
+                    const adjustedTime = parseFloat(time) + timeAdjustment;
+                    return adjustedTime >= 0 ? match.replace(time, adjustedTime.toFixed(3)) : '';
+                }
+            );
+            // 生成下载文件名
+            const originalName = file.name;
+            const fileNameWithoutExtension = originalName.substring(0, originalName.lastIndexOf('.'));
+            const adjustedFileName = `${fileNameWithoutExtension}_adjusted.xml`;
+            // 下载修改后的 XML
+            startDownload('\ufeff' + updatedXML, adjustedFileName);
+        };
+        // 读取文件内容
+        reader.readAsText(file);
     }
 
     ///////////////////////////IQY START
@@ -91,10 +211,10 @@
             for (let entry of enrties) {
                 const [bulletInfo1, bulletInfo2] = entry.getElementsByTagName("bulletInfo");
                 for (let bi of [bulletInfo1, bulletInfo2].filter(x => x)) {
-                    const start = bi.getElementsByTagName("showTime")[0].textContent;
+                    const start = parseFloat(bi.getElementsByTagName("showTime")[0].textContent) + delay;
                     const content = bi.getElementsByTagName("content")[0].textContent;
                     const color = parseInt("0x" + bi.getElementsByTagName("color")[0].textContent);
-                    list.push(`<d p="${start},1,25,${color},1659282294,0,8b53b65c,1108899274487246080,10"><![CDATA[${content}]]></d>`);
+                    list.push(`<d p="${start.toFixed(3)},1,25,${color},1659282294,0,8b53b65c,1108899274487246080,10"><![CDATA[${content}]]></d>`);
                 }
             }
             return list.join('');
@@ -128,8 +248,8 @@
                     let tmp = JSON.parse(x.content_style);
                     if (tmp.gradient_colors) color = parseInt("0x" + tmp.gradient_colors[0]);
                 }
-                let start = Number(x.time_offset) / 1000.0;
-                list.push(`<d p="${start},1,25,${color},1659282294,0,8b53b65c,1108899274487246080,10"><![CDATA[${content}]]></d>`);
+                let start = (parseFloat(x.time_offset) / 1000.0) + delay;
+                list.push(`<d p="${start.toFixed(3)},1,25,${color},1659282294,0,8b53b65c,1108899274487246080,10"><![CDATA[${content}]]></d>`);
             });
             return list.join('');
         });
@@ -139,14 +259,30 @@
     ///////////////////////////QQ END
 
 
+    ///////////////////////////DuoDuo START
+    async function invoke_duoduo(url) {
+        const color = "16777215";
+        const jsonArray = await fetch(url).then(x => x.json());
+        const vid = url.split('/').pop();
+        const ds = jsonArray.map(x => {
+            const start = parseFloat(x.p.split(',').shift()) + delay;
+            const content = x.d;
+            return `<d p="${start.toFixed(3)},1,25,${color},1659282294,0,8b53b65c,1108899274487246080,10"><![CDATA[${content}]]></d>`;
+        });
+        downloadDanmu(ds, vid, url);
+    }
+    ///////////////////////////DuoDuo END
 
     async function handleLocal() {
         var url = text.value;
         document.body.appendChild(document.createTextNode("开始下载：" + url));
-        if (url.indexOf("qq.com") > 0) {
+        if (url.includes("qq.com")) {
             await invoke_qq(url);
-        } else if (url.indexOf("iqiyi.com") > 0) {
+        } else if (url.includes("iqiyi.com")) {
             await invoke_iqiyi(url);
+        }  else if (url.includes("static-dm.frogsport.top/v1/produce/danmu")) {
+            // https://static-dm.frogsport.top/v1/produce/danmu/EPISODE/346213
+            await invoke_duoduo(url);
         } else {
             alert('不支持');
         }
@@ -160,9 +296,9 @@
         var json = await fetch("https://dmku.thefilehosting.com/?ac=dm&url=" + url).then(x => x.json());
         var list = [];
         Array.from(json.danmuku).forEach(x => {
-            let start = Number(x[0]);
+            let start = parseFloat(x[0]) + delay;
             let content = x[4];
-            list.push(`<d p="${start},1,25,16777215,1659282294,0,8b53b65c,1108899274487246080,10"><![CDATA[${content}]]></d>`)
+            list.push(`<d p="${start.toFixed(3)},1,25,16777215,1659282294,0,8b53b65c,1108899274487246080,10"><![CDATA[${content}]]></d>`)
         });
         var xml = String.raw`<?xml version="1.0" encoding="UTF-8"?><i><chatserver>chat.bilibili.com</chatserver><chatid>52175602</chatid><mission>0</mission><maxlimit>1000</maxlimit><state>0</state><real_name>0</real_name><source>k-v</source>`
             + list.join('') + "</i>";

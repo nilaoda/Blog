@@ -2177,7 +2177,10 @@ function setTrimTimes(a,b){
   });
   wrap.addEventListener('pointerleave',()=>{ if(!drag&&!scrub) $('tlTip').classList.remove('on'); });
   window.addEventListener('pointermove',e=>{
-    if(!drag||!S.source.dur) return;
+    if((!drag&&!scrub)||!S.source.dur) return;
+    /* pointerup 丢失时（例如在窗口外松开）避免鼠标悬停继续拖时间轴 */
+    if(e.buttons===0){ endDrag(); return; }
+    if(!drag) return;
     if(drag==='in') S.clip.in=clamp(timeAt(e.clientX),0,S.clip.out-0.01);
     else if(drag==='out') S.clip.out=clamp(timeAt(e.clientX),S.clip.in+0.01,S.source.dur);
     else if(drag.k==='win'){
@@ -2196,6 +2199,7 @@ function setTrimTimes(a,b){
   };
   window.addEventListener('pointerup',endDrag);
   window.addEventListener('pointercancel',endDrag);
+  window.addEventListener('blur',endDrag);
 })();
 
 /* ============================ 播放 ============================ */
@@ -2297,16 +2301,24 @@ $('noTrim').addEventListener('change',e=>{
 /* ============================ 裁剪交互 ============================ */
 let cropDrag=null;
 const cropRect=$('cropRect');
+function endCrop(){
+  if(!cropDrag) return;
+  const id=cropDrag.id;
+  cropDrag=null;
+  try{ if(cropRect.hasPointerCapture(id)) cropRect.releasePointerCapture(id); }catch(err){}
+}
 cropRect.addEventListener('pointerdown',e=>{
-  if(copyMode()||!S.source.nw) return;
+  if(copyMode()||!S.source.nw||cropDrag||e.button!==0) return;
   checkpoint();
   const type=e.target.dataset.d || 'move';
-  cropDrag={type,sx:e.clientX,sy:e.clientY,c:{...S.clip.crop}};
-  cropRect.setPointerCapture(e.pointerId);
+  cropDrag={type,sx:e.clientX,sy:e.clientY,c:{...S.clip.crop},id:e.pointerId};
+  try{ cropRect.setPointerCapture(e.pointerId); }catch(err){}
   e.preventDefault();
 });
 cropRect.addEventListener('pointermove',e=>{
   if(!cropDrag) return;
+  /* pointerup 可能丢在窗口外：没有按键或换了指针就立即结束，避免悬停时继续拖动 */
+  if(e.pointerId!==cropDrag.id||e.buttons===0){ endCrop(); return; }
   const dx=(e.clientX-cropDrag.sx)/Math.max(0.0001,K);
   const dy=(e.clientY-cropDrag.sy)/Math.max(0.0001,K);
   const W=fw(),H=fh(),c=cropDrag.c,AR=S.clip.ar;
@@ -2334,9 +2346,10 @@ cropRect.addEventListener('pointermove',e=>{
   }
   setCrop({x,y,w,h});
 });
-const endCrop=()=>{ cropDrag=null; };
-cropRect.addEventListener('pointerup',endCrop);
-cropRect.addEventListener('pointercancel',endCrop);
+cropRect.addEventListener('lostpointercapture',e=>{ if(cropDrag&&e.pointerId===cropDrag.id) endCrop(); });
+window.addEventListener('pointerup',e=>{ if(cropDrag&&e.pointerId===cropDrag.id) endCrop(); });
+window.addEventListener('pointercancel',e=>{ if(cropDrag&&e.pointerId===cropDrag.id) endCrop(); });
+window.addEventListener('blur',endCrop);
 
 $('stageFit').addEventListener('wheel',e=>{
   if(!S.source.nw) return;
@@ -2351,19 +2364,28 @@ $('stageFit').addEventListener('dblclick',e=>{
 (function(){
   let drag=null;
   const fit=$('stageFit');
+  const end=e=>{
+    if(!drag) return;
+    if(e&&e.pointerId!==undefined&&e.pointerId!==drag.id) return;
+    const id=drag.id;
+    drag=null; fit.classList.remove('grabbing');
+    try{ if(fit.hasPointerCapture(id)) fit.releasePointerCapture(id); }catch(err){}
+  };
   fit.addEventListener('pointerdown',e=>{
-    if(Z<=1||e.button!==0||e.target.closest('#cropRect')||e.target.closest('#floatBar')) return;
-    drag={x:e.clientX-PAN.x,y:e.clientY-PAN.y};
-    fit.classList.add('grabbing'); fit.setPointerCapture(e.pointerId);
+    if(Z<=1||e.button!==0||drag||e.target.closest('#cropRect')||e.target.closest('#floatBar')) return;
+    drag={x:e.clientX-PAN.x,y:e.clientY-PAN.y,id:e.pointerId};
+    fit.classList.add('grabbing'); try{ fit.setPointerCapture(e.pointerId); }catch(err){}
   });
   fit.addEventListener('pointermove',e=>{
     if(!drag) return;
+    if(e.pointerId!==drag.id||e.buttons===0){ end(e); return; }
     PAN.x=e.clientX-drag.x; PAN.y=e.clientY-drag.y;
     layout();
   });
-  const end=e=>{ drag=null; fit.classList.remove('grabbing'); try{ fit.releasePointerCapture(e.pointerId); }catch(err){} };
-  fit.addEventListener('pointerup',end);
-  fit.addEventListener('pointercancel',end);
+  fit.addEventListener('lostpointercapture',end);
+  window.addEventListener('pointerup',end);
+  window.addEventListener('pointercancel',end);
+  window.addEventListener('blur',()=>end());
 })();
 
 function rotateTo(rot){

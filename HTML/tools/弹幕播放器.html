@@ -45,7 +45,7 @@
     background:radial-gradient(120% 100% at 50% 0%,#0a121b,#04070a 72%);
   }
   #player:fullscreen,#player:-webkit-full-screen{background:#000}
-  #stage{position:relative;overflow:hidden;background:#000;box-shadow:0 0 0 1px rgba(148,178,206,.07)}
+  #stage{position:relative;overflow:hidden;background:#000;box-shadow:0 0 0 1px rgba(148,178,206,.07);touch-action:manipulation}
   #stage video{position:absolute;inset:0;width:100%;height:100%;display:block;background:#000;object-fit:contain}
   #dmLayer{
     position:absolute;inset:0;overflow:hidden;pointer-events:none;user-select:none;
@@ -264,7 +264,7 @@
   /* ---------- 弹幕设置弹层 ---------- */
   #dmPanel{
     position:absolute;right:14px;bottom:86px;z-index:17;width:328px;max-width:calc(100% - 28px);
-    max-height:min(62%,470px);overflow:auto;padding:12px 13px 13px;
+    max-height:min(68%,540px);overflow:auto;padding:12px 13px 13px;
     display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;
     background:rgba(9,14,20,.94);border:1px solid var(--line2);border-radius:13px;
     box-shadow:0 20px 52px rgba(0,0,0,.62);backdrop-filter:blur(18px);
@@ -456,6 +456,7 @@
         <div class="checks">
           <label class="check"><input type="checkbox" id="dShow" checked>显示弹幕</label>
           <label class="check"><input type="checkbox" id="dStroke" checked>描边</label>
+          <label class="check" title="忽略 XML 中的字号差异，所有弹幕按同一字号显示"><input type="checkbox" id="dUnify">统一字号</label>
           <label class="check"><input type="checkbox" id="dMerge">合并相同</label>
           <label class="check"><input type="checkbox" id="dHud">性能浮层</label>
         </div>
@@ -483,6 +484,7 @@
         </div>
         <div class="kbdRow">
           <span><span class="kbd">空格</span> 播放</span>
+          <span><span class="kbd">单击</span> 暂停 · <span class="kbd">双击</span> 全屏</span>
           <span><span class="kbd">←</span><span class="kbd">→</span> ±5 秒</span>
           <span><span class="kbd">↑</span><span class="kbd">↓</span> 音量</span>
           <span><span class="kbd">D</span> 弹幕开关</span>
@@ -530,7 +532,7 @@ const el = {
   dColor:$('#dColor'), vColor:$('#vColor'),
   fScroll:$('#fScroll'), fTop:$('#fTop'), fBottom:$('#fBottom'),
   nScroll:$('#nScroll'), nTop:$('#nTop'), nBottom:$('#nBottom'), vFilter:$('#vFilter'),
-  dShow:$('#dShow'), dStroke:$('#dStroke'),
+  dShow:$('#dShow'), dStroke:$('#dStroke'), dUnify:$('#dUnify'),
   statTotal:$('#statTotal'), statSkip:$('#statSkip'), statSpan:$('#statSpan'), statFmt:$('#statFmt'),
   statLanes:$('#statLanes'), btnResync:$('#btnResync')
 };
@@ -544,6 +546,7 @@ const DM_GAP = 5;                   // 同轨道像素间距（niconico collisio
 const DM_INSET = 6, DM_ROW_GAP = 4; // 画面边距与文字的垂直间距
 const MAX_WAIT = 1, WAIT_CAP = 240;  // 拥挤时最多延迟 1 秒，避免陈旧弹幕集中补发
 const ROW_K = 1.15;                 // 轨道行高 = 字号 × 1.08~1.17，取中上值
+const BASE_FONT = 25;               // XML 未指定字号时的基准号，也是「统一字号」使用的字号
 const VIDEO_EXT = /\.(mp4|m4v|mov|webm|mkv|ts|m2ts|mpeg|mpg|avi|flv|vob|ogv|ogg|3gp)$/i;
 const clamp = (v,a,b) => v < a ? a : v > b ? b : v;
 
@@ -553,12 +556,97 @@ const S = {
   skipped:0, dropped:0, merged:0, scrub:false, scrubRatio:0, recent:new Map(),
   counts:{scroll:0,top:0,bottom:0},
   ui:{ show:true, opacity:0.9, speed:1, zoom:1, cap:150, offset:0, color:'orig',
-       stroke:true, loop:false, area:'half', merge:false, hud:false,
+       stroke:true, loop:false, area:'half', merge:false, hud:false, unify:false,
        filter:{scroll:true, top:true, bottom:true} }
 };
 const G = {
-  W:1280, H:720, rowH:32, laneCount:20, rr:0, D:7.1, fixDur:FIX_DUR
+  W:1280, H:720, rowH:32, laneCount:20, laneStep:7, rr:0, D:7.1, fixDur:FIX_DUR
 };
+
+/* ---------------- 设置持久化 ----------------
+ * 只保存设置面板里的偏好；file:// 或隐私模式下 localStorage 可能不可用，失败就退回本次会话。 */
+const PREF_KEY = 'blog.danmaku-player.prefs.v1';
+const PREF_AREA = ['full','q3','half','q1'];
+const PREF_COLOR = ['orig','white','black','rainbow'];
+const FILTER_NAME = { scroll:'滚动', top:'顶部', bottom:'底部' };
+function prefNumber(v, lo, hi, fallback){
+  return typeof v === 'number' && isFinite(v) ? clamp(v, lo, hi) : fallback;
+}
+function loadPrefs(){
+  let p = null;
+  try { p = JSON.parse(localStorage.getItem(PREF_KEY) || 'null'); } catch (e){ return; }
+  if (!p || typeof p !== 'object') return;
+  const ui = S.ui;
+  if (typeof p.show === 'boolean') ui.show = p.show;
+  ui.opacity = prefNumber(p.opacity, 0.1, 1, ui.opacity);
+  ui.speed = prefNumber(p.speed, 0.5, 3, ui.speed);
+  ui.zoom = prefNumber(p.zoom, 0.6, 1.8, ui.zoom);
+  ui.cap = Math.round(prefNumber(p.cap, 20, 400, ui.cap) / 10) * 10;
+  ui.offset = prefNumber(p.offset, -86400, 86400, ui.offset);
+  if (PREF_COLOR.indexOf(p.color) >= 0) ui.color = p.color;
+  if (PREF_AREA.indexOf(p.area) >= 0) ui.area = p.area;
+  if (typeof p.stroke === 'boolean') ui.stroke = p.stroke;
+  if (typeof p.merge === 'boolean') ui.merge = p.merge;
+  if (typeof p.hud === 'boolean') ui.hud = p.hud;
+  if (typeof p.unify === 'boolean') ui.unify = p.unify;
+  if (p.filter && typeof p.filter === 'object'){
+    for (const k of ['scroll','top','bottom']) if (typeof p.filter[k] === 'boolean') ui.filter[k] = p.filter[k];
+  }
+}
+let prefsTimer = 0;
+function writePrefs(){
+  prefsTimer = 0;
+  try {
+    localStorage.setItem(PREF_KEY, JSON.stringify({
+      show:S.ui.show, opacity:S.ui.opacity, speed:S.ui.speed, zoom:S.ui.zoom,
+      cap:S.ui.cap, offset:S.ui.offset, color:S.ui.color, area:S.ui.area,
+      stroke:S.ui.stroke, merge:S.ui.merge, hud:S.ui.hud, unify:S.ui.unify,
+      filter:{ scroll:S.ui.filter.scroll, top:S.ui.filter.top, bottom:S.ui.filter.bottom }
+    }));
+  } catch (e){ /* 存储不可用：设置仅在本次会话生效 */ }
+}
+function savePrefs(){
+  clearTimeout(prefsTimer);
+  prefsTimer = setTimeout(writePrefs, 160);
+}
+window.addEventListener('pagehide', () => { if (prefsTimer) writePrefs(); });
+function colorLabel(){
+  const o = el.dColor.options[el.dColor.selectedIndex];
+  return (o ? o.text : '').replace('全部 ', '').replace('保留 XML ', 'XML ');
+}
+function setFilterLabel(){
+  const on = ['scroll','top','bottom'].filter(k => S.ui.filter[k]);
+  el.vFilter.textContent = on.length === 3 ? '全部' : (on.length ? on.map(k => FILTER_NAME[k]).join('/') : '全部关闭');
+}
+function syncSettingsUI(){
+  el.dOpacity.value = S.ui.opacity;
+  el.vOpacity.textContent = Math.round(S.ui.opacity * 100) + '%';
+  el.layer.style.opacity = S.ui.opacity;
+  el.dSpeed.value = S.ui.speed;
+  el.vSpeedTxt.textContent = S.ui.speed.toFixed(1) + '×';
+  el.dZoom.value = S.ui.zoom;
+  el.vZoom.textContent = S.ui.zoom.toFixed(2) + '×';
+  el.dCap.value = S.ui.cap;
+  el.vCap.textContent = S.ui.cap;
+  el.dOffset.value = S.ui.offset;
+  el.vOffset.textContent = (S.ui.offset >= 0 ? '+' : '') + S.ui.offset.toFixed(1) + ' 秒';
+  el.dColor.value = S.ui.color;
+  el.vColor.textContent = colorLabel();
+  el.dStroke.checked = S.ui.stroke;
+  el.dMerge.checked = S.ui.merge;
+  el.dHud.checked = S.ui.hud;
+  el.dShow.checked = S.ui.show;
+  el.dUnify.checked = S.ui.unify;
+  el.fScroll.checked = S.ui.filter.scroll;
+  el.fTop.checked = S.ui.filter.top;
+  el.fBottom.checked = S.ui.filter.bottom;
+  setFilterLabel();
+  el.vArea.textContent = AREA_NAME[S.ui.area] || '全屏';
+  Array.prototype.forEach.call(el.segArea.children, x => x.classList.toggle('on', x.dataset.v === S.ui.area));
+  el.btnDm.classList.toggle('accentOn', S.ui.show);
+  el.hudCount.classList.toggle('off', !S.ui.show);
+  document.body.classList.toggle('hud-on', S.ui.hud);
+}
 
 /* ---------------- 通用 UI ---------------- */
 function toast(kind, msg, ms){
@@ -606,6 +694,10 @@ function scaledFont(size){
   const max = Math.max(12, Math.round(G.H * 0.45));
   return clamp(Math.round(size * k * S.ui.zoom), 10, max);
 }
+/* 统一字号时忽略 XML 里的 size，只保留画面缩放与用户字号倍率 */
+function fontOf(it){
+  return scaledFont(S.ui.unify ? BASE_FONT : it.size);
+}
 const wCache = new Map();
 function textWidth(text, fontPx){
   const key = fontPx + '\u0000' + text;
@@ -637,8 +729,9 @@ function measureGeo(){
   const oldW = G.W;
   G.W = r.width || 0; G.H = r.height || 0;
   if (G.W < 2 || G.H < 2) return;
-  G.rowH = Math.max(12, Math.round(scaledFont(25) * ROW_K));
+  G.rowH = Math.max(12, Math.round(scaledFont(BASE_FONT) * ROW_K));
   G.laneCount = Math.max(1, Math.floor((G.H * (AREA_RATIO[S.ui.area] || 1) - 2 * DM_INSET) / G.rowH));
+  G.laneStep = laneStepOf(G.laneCount);
   G.D = clamp(SCROLL_BASE * G.W / SCROLL_REF_W, SCROLL_MIN, SCROLL_MAX) / S.ui.speed;
   G.fixDur = FIX_DUR / S.ui.speed;
   el.statLanes.textContent = G.laneCount + ' 轨 · 穿屏 ' + G.D.toFixed(1) + 's';
@@ -654,7 +747,7 @@ function relayoutAll(oldW){
   for (const it of active){
     const oldX = it.kind === 'scroll' ? oldW - (t - it.t0) * it.v : xAt(it, t);
     const progress = it.dur > 0 ? (t - it.t0) / it.dur : 0;
-    it.fontPx = scaledFont(it.size);
+    it.fontPx = fontOf(it);
     it.w = textWidth(it.text, it.fontPx);
     it.span = spanOf(it.fontPx);
     it.dur = it.kind === 'scroll' ? G.D : G.fixDur;
@@ -872,6 +965,18 @@ function colorOf(it, i){
  * 每条弹幕先算一次横向冲突，再标记被占用的行，避免逐轨重复做运动判断。 */
 const MERGE_WIN = 1.0;
 const spanOf = (fontPx) => Math.max(1, Math.ceil((fontPx + DM_ROW_GAP) / G.rowH));
+function gcd(a, b){ while (b){ const t = a % b; a = b; b = t; } return a; }
+/* 与轨道数互质、接近黄金分割的步长：连续入轨能均匀扫过整屏轨道。 */
+function laneStepOf(n){
+  if (n <= 2) return 1;
+  const base = Math.max(1, Math.round(n * 0.382));
+  for (let d = 0; d < n; d++){
+    for (const s of [base + d, base - d]){
+      if (s > 0 && s < n && gcd(s, n) === 1) return s;
+    }
+  }
+  return 1;
+}
 function xAt(it, t){
   return it.kind === 'scroll' ? G.W - (t - it.t0) * it.v : Math.max(2, (G.W - it.w) / 2);
 }
@@ -904,7 +1009,7 @@ function pickLane(it, t, preferred = -1){
   return -1;
 }
 function place(it, t, fromSeek){
-  it.fontPx = scaledFont(it.size);
+  it.fontPx = fontOf(it);
   it.w = textWidth(it.text, it.fontPx);
   it.span = spanOf(it.fontPx);
   it.t0 = fromSeek ? it.time : t;
@@ -919,7 +1024,8 @@ function place(it, t, fromSeek){
   const lane = pickLane(it, t);
   if (lane < 0) return false;
   it.lane = lane;
-  if (it.kind === 'scroll') G.rr = (lane + it.span) % G.laneCount;
+  /* 同一秒涌入的弹幕按大步长摊到整屏，而不是在相邻几行堆成一堵字墙 */
+  if (it.kind === 'scroll') G.rr = (lane + Math.max(G.laneStep, it.span)) % G.laneCount;
   if (S.ui.merge){
     if (S.recent.size > 4000) S.recent.clear();
     S.recent.set(key, it.time);             // 入轨成功才记录，重试不会误判为重复
@@ -1108,8 +1214,12 @@ el.video.addEventListener('timeupdate', refreshStatus);
 el.btnPlay.addEventListener('click', togglePlay);
 function togglePlay(){
   if (!S.videoFile || el.video.error) return;
-  if (el.video.paused || el.video.ended) el.video.play().catch(e => toast('bad', '无法播放：' + e.message, 5000));
-  else el.video.pause();
+  if (el.video.paused || el.video.ended){
+    el.video.play().catch(e => {
+      if (e && e.name === 'AbortError') return;   // 连续切换时 play 被 pause 打断，不是故障
+      toast('bad', '无法播放：' + e.message, 5000);
+    });
+  } else el.video.pause();
 }
 el.btnBack.addEventListener('click', () => nudge(-5));
 el.btnFwd.addEventListener('click', () => nudge(5));
@@ -1210,7 +1320,8 @@ el.btnLoop.addEventListener('click', () => {
 });
 
 /* 全屏 */
-el.btnFull.addEventListener('click', () => {
+el.btnFull.addEventListener('click', toggleFullscreen);
+function toggleFullscreen(){
   const cur = document.fullscreenElement || document.webkitFullscreenElement;
   if (cur){
     const exit = document.exitFullscreen || document.webkitExitFullscreen;
@@ -1223,7 +1334,7 @@ el.btnFull.addEventListener('click', () => {
   catch (err){ r = null; toast('bad', '进入全屏失败：' + err.message, 4000); }
   if (r && typeof r.catch === 'function') r.catch(err => toast('bad', '进入全屏失败：' + err.message, 4000));
   if (!document.fullscreenEnabled && !document.webkitFullscreenEnabled) toast('warn', '当前浏览器不支持全屏播放', 4000);
-});
+}
 function onFullscreenChange(){
   const fs = !!(document.fullscreenElement || document.webkitFullscreenElement);
   el.btnFull.textContent = fs ? '⛶ 退出' : '⛶';
@@ -1244,6 +1355,7 @@ function toggleDanmaku(on){
   if (S.ui.show) resync(el.video.currentTime + S.ui.offset);
   else { clearActive(); }
   refreshStatus();
+  savePrefs();
 }
 
 /* 设置项 */
@@ -1251,20 +1363,24 @@ el.dOpacity.addEventListener('input', () => {
   S.ui.opacity = parseFloat(el.dOpacity.value);
   el.layer.style.opacity = S.ui.opacity;
   el.vOpacity.textContent = Math.round(S.ui.opacity * 100) + '%';
+  savePrefs();
 });
 el.dSpeed.addEventListener('input', () => {
   S.ui.speed = parseFloat(el.dSpeed.value);
   el.vSpeedTxt.textContent = S.ui.speed.toFixed(1) + '×';
   measureGeo();
+  savePrefs();
 });
 el.dZoom.addEventListener('input', () => {
   S.ui.zoom = parseFloat(el.dZoom.value);
   el.vZoom.textContent = S.ui.zoom.toFixed(2) + '×';
   measureGeo();
+  savePrefs();
 });
 el.dCap.addEventListener('input', () => {
   S.ui.cap = parseInt(el.dCap.value, 10);
   el.vCap.textContent = S.ui.cap;
+  savePrefs();
 });
 el.dOffset.addEventListener('change', () => {
   let v = parseFloat(el.dOffset.value);
@@ -1274,11 +1390,13 @@ el.dOffset.addEventListener('change', () => {
   S.ui.offset = v;
   el.vOffset.textContent = (v >= 0 ? '+' : '') + v.toFixed(1) + ' 秒';
   resync(el.video.currentTime + S.ui.offset);
+  savePrefs();
 });
 el.dColor.addEventListener('change', () => {
   S.ui.color = el.dColor.value;
-  el.vColor.textContent = el.dColor.options[el.dColor.selectedIndex].text.replace('全部 ', '').replace('保留 XML ', 'XML ');
+  el.vColor.textContent = colorLabel();
   S.active.forEach((it, i) => { if (it.node) it.node.style.color = colorOf(it, i); });
+  savePrefs();
 });
 el.dStroke.addEventListener('change', () => {
   S.ui.stroke = el.dStroke.checked;
@@ -1287,14 +1405,20 @@ el.dStroke.addEventListener('change', () => {
     it.node.style.webkitTextStroke = S.ui.stroke ? '' : '0px';
     it.node.style.textShadow = S.ui.stroke ? '' : 'none';
   });
+  savePrefs();
+});
+el.dUnify.addEventListener('change', () => {
+  S.ui.unify = el.dUnify.checked;
+  measureGeo();                       // 在屏弹幕就地重算字号与轨道，位置保持连续
+  savePrefs();
 });
 [['fScroll','scroll'],['fTop','top'],['fBottom','bottom']].forEach(([id, kind]) => {
   el[id].addEventListener('change', () => {
     S.ui.filter[kind] = el[id].checked;
-    const on = ['scroll','top','bottom'].filter(k => S.ui.filter[k]);
-    el.vFilter.textContent = on.length === 3 ? '全部' : (on.length ? on.join('/') : '全部关闭');
+    setFilterLabel();
     clearActive();
     resync(el.video.currentTime + S.ui.offset);
+    savePrefs();
   });
 });
 el.btnResync.addEventListener('click', () => { resync(el.video.currentTime + S.ui.offset); toast('ok', '已按当前时间重新排布弹幕', 2000); });
@@ -1325,10 +1449,15 @@ function setPanel(on){
   el.btnSettings.classList.toggle('on', open);
   if (open) showChrome(true); else showChrome(false);
 }
+let stageTapTimer = 0, stageTapBlocked = false;
 document.addEventListener('pointerdown', e => {
   if (!document.body.classList.contains('panel-on')) return;
   if (el.dmPanel.contains(e.target) || el.btnSettings.contains(e.target)) return;
   setPanel(false);
+  if (el.stage.contains(e.target)){          // 点画面只是关弹层，不该顺手切换播放
+    stageTapBlocked = true;
+    setTimeout(() => { stageTapBlocked = false; }, 350);
+  }
 }, true);
 
 el.btnSettings.addEventListener('click', () => setPanel());
@@ -1339,17 +1468,40 @@ el.segArea.addEventListener('click', e => {
   Array.prototype.forEach.call(el.segArea.children, x => x.classList.toggle('on', x === b));
   el.vArea.textContent = AREA_NAME[S.ui.area] || '全屏';
   measureGeo();
+  savePrefs();
 });
 el.dMerge.addEventListener('change', () => {
   S.ui.merge = el.dMerge.checked;
   resyncNow();
+  savePrefs();
 });
 el.dHud.addEventListener('change', () => {
   S.ui.hud = el.dHud.checked;
   document.body.classList.toggle('hud-on', S.ui.hud);
+  savePrefs();
 });
 el.bigPlay.addEventListener('click', e => { e.stopPropagation(); togglePlay(); });
 el.pickVideo.addEventListener('click', e => { e.stopPropagation(); el.videoInput.click(); });
+/* 单击画面播放/暂停，双击全屏。
+ * 单击等 220ms 再执行；若双击慢于 220ms，第一次单击已经生效，双击时先撤销再进全屏。 */
+let stageTapFired = false;
+el.stage.addEventListener('click', e => {
+  if (stageTapBlocked || e.detail > 1) return;
+  clearTimeout(stageTapTimer);
+  stageTapFired = false;
+  stageTapTimer = setTimeout(() => {
+    stageTapTimer = 0;
+    stageTapFired = true;
+    togglePlay();
+  }, 220);
+});
+el.stage.addEventListener('dblclick', () => {
+  if (stageTapBlocked) return;
+  if (stageTapTimer){ clearTimeout(stageTapTimer); stageTapTimer = 0; }
+  else if (stageTapFired) togglePlay();     // 单击已经切换过播放状态，双击只负责全屏
+  stageTapFired = false;
+  toggleFullscreen();
+});
 el.pickXml.addEventListener('click', e => { e.stopPropagation(); el.xmlInput.click(); });
 
 /* 拖放 */
@@ -1386,7 +1538,7 @@ document.addEventListener('keydown', e => {
   else if (k === 's' || k === 'S'){ el.btnSettings.click(); }
   else if (k === 'h' || k === 'H'){ el.dHud.checked = !el.dHud.checked; el.dHud.dispatchEvent(new Event('change')); }
   else if (k === 'Escape'){ if (document.body.classList.contains('panel-on')) setPanel(false); }
-  else if (k === '?' ){ toast('ok', '空格 播放 · ←→ ±5s · ↑↓ 音量 · D 弹幕 · F 全屏 · L 循环 · M 静音 · S 设置 · H 浮层', 6000); }
+  else if (k === '?' ){ toast('ok', '空格/单击 播放暂停 · 双击 全屏 · ←→ ±5s · ↑↓ 音量 · D 弹幕 · F 全屏 · L 循环 · M 静音 · S 设置 · H 浮层', 6000); }
 });
 function setVol(v){
   el.video.volume = clamp(v, 0, 1);
@@ -1404,13 +1556,8 @@ window.addEventListener('resize', fitStage);
 window.addEventListener('orientationchange', () => setTimeout(fitStage, 200));
 
 /* 初始化 */
-el.layer.style.opacity = S.ui.opacity;
-el.vOpacity.textContent = Math.round(S.ui.opacity * 100) + '%';
-el.vSpeedTxt.textContent = S.ui.speed.toFixed(1) + '×';
-el.vZoom.textContent = S.ui.zoom.toFixed(2) + '×';
-el.vCap.textContent = S.ui.cap;
-el.vOffset.textContent = '+0.0 秒';
-el.vColor.textContent = 'XML 原色';
+loadPrefs();
+syncSettingsUI();
 syncMuteIcon();
 el.player.classList.add('paused');
 setPanel(false);
